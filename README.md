@@ -1,7 +1,10 @@
 # Pomodo
 
-Минималистичный полноэкранный таймер для Android. Никаких рамок и карточек — только время
-и прогресс, который заливает экран слева направо.
+Минималистичный полноэкранный таймер для Android и iOS. Никаких рамок и карточек — только
+время и прогресс, который заливает экран слева направо.
+
+- `app/`, `gradle/` — Android-приложение (Kotlin + Jetpack Compose)
+- `ios/` — iOS-приложение (Swift + SwiftUI)
 
 ## Возможности
 
@@ -21,14 +24,39 @@
 - Тап по экрану таймера — показать/скрыть панель (пауза, заново, выход). Панель прячется сама.
 - Кнопка «Назад» — выйти из таймера.
 
-## Стек
+Настройки на обеих платформах открываются прямо из работающего таймера — отсчёт при этом
+не прерывается.
 
-Kotlin, Jetpack Compose (Material 3), DataStore Preferences.
-`minSdk 24`, `targetSdk 35`.
+## Android
 
-## Сборка
+Kotlin, Jetpack Compose (Material 3), DataStore Preferences. `minSdk 24`, `targetSdk 35`.
 
 ```bash
 ./gradlew :app:assembleDebug
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## iOS
+
+Swift 5, SwiftUI, настройки в UserDefaults. Минимальная версия — iOS 17.
+
+Проект Xcode генерируется из `ios/project.yml`, поэтому в репозитории его нет:
+
+```bash
+brew install xcodegen        # если ещё не стоит
+cd ios && xcodegen generate  # создаст Pomodo.xcodeproj
+open Pomodo.xcodeproj
+```
+
+Сборка и установка на подключённое устройство из консоли:
+
+```bash
+cd ios
+xcodebuild -project Pomodo.xcodeproj -scheme Pomodo \
+  -destination 'id=<UDID устройства>' -allowProvisioningUpdates build
+xcrun devicectl device install app --device <идентификатор> <путь>/Pomodo.app
+```
+
+Отличия от Android — там, где у платформы своя идиома: настройки и выбор длительности
+показываются листом (sheet), цвета выбираются системным `ColorPicker`, вместо вибрации —
+хаптик.

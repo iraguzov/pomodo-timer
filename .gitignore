@@ -9,3 +9,8 @@ local.properties
 /captures
 .externalNativeBuild
 .cxx
+
+# iOS
+ios/Pomodo.xcodeproj/
+ios/DerivedData/
+xcuserdata/
