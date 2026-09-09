@@ -39,20 +39,10 @@ data class TimerState(
     /** Сколько осталось до нуля. */
     val remainingMs: Long get() = (totalMs - elapsedMs).coerceAtLeast(0L)
 
-    /** Сколько уже натикало сверх заданного времени. */
-    val overtimeMs: Long get() = (elapsedMs - totalMs).coerceAtLeast(0L)
-
     val finished: Boolean get() = active && elapsedMs >= totalMs
-
-    /** Что показывать на табло: обратный отсчёт, а после нуля — время переработки. */
-    val displayMs: Long get() = if (finished) overtimeMs else remainingMs
 
     val progress: Float
         get() = if (totalMs <= 0L) 0f else (elapsedMs.toFloat() / totalMs).coerceIn(0f, 1f)
-
-    /** Переработка тем же масштабом: полный экран = ещё один такой же отрезок. */
-    val overtimeProgress: Float
-        get() = if (totalMs <= 0L) 0f else (overtimeMs.toFloat() / totalMs).coerceIn(0f, 1f)
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -90,7 +80,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resume() {
-        if (!timer.active) return
+        if (!timer.active || timer.finished) return
         timer = timer.copy(running = true)
         runLoop()
     }
@@ -110,19 +100,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         timer = TimerState()
     }
 
-    /**
-     * После нуля таймер не останавливается, а продолжает считать переработку —
-     * её показывает встречная полоса на экране таймера.
-     */
     private fun runLoop() {
         val startedAt = SystemClock.elapsedRealtime() - timer.elapsedMs
         tickJob = viewModelScope.launch {
             while (isActive) {
-                timer = timer.copy(elapsedMs = SystemClock.elapsedRealtime() - startedAt)
-                if (timer.finished && !finishNotified) {
-                    finishNotified = true
-                    if (settings.value.vibrateOnFinish) vibrate()
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                if (elapsed >= timer.totalMs) {
+                    timer = timer.copy(elapsedMs = timer.totalMs, running = false)
+                    if (!finishNotified) {
+                        finishNotified = true
+                        if (settings.value.vibrateOnFinish) vibrate()
+                    }
+                    break
                 }
+                timer = timer.copy(elapsedMs = elapsed)
                 delay(40)
             }
         }

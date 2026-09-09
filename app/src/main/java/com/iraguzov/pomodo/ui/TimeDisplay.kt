@@ -205,22 +205,25 @@ private fun FlipCell(
 
     LaunchedEffect(char) {
         if (char != shown) {
+            // Сначала отматываем анимацию в начало и только потом подменяем цифры:
+            // в обратном порядке между кадрами успевает мелькнуть верх новой цифры с низом старой.
+            progress.snapTo(0f)
             previous = shown
             shown = char
-            progress.snapTo(0f)
             progress.animateTo(1f, tween(durationMillis = 420, easing = LinearEasing))
-            // Переворот закончился: нижняя половина тоже переезжает на новую цифру,
-            // иначе она так и осталась бы показывать предыдущую.
-            previous = shown
         }
     }
 
     val p = progress.value
+    // Пока створка падает, снизу видна прошлая цифра; как только она легла — текущая.
+    // Считаем это от прогресса, а не отдельным присваиванием после анимации,
+    // иначе на один кадр половинки снова разъезжаются.
+    val bottomChar = if (p >= 1f) shown else previous
 
     Box(Modifier.size(width, height), contentAlignment = Alignment.Center) {
         Box(Modifier.size(cardWidth, height)) {
             HalfCard(shown, true, cardWidth, height, textStyle, cardColor, radius, Modifier.align(Alignment.TopCenter))
-            HalfCard(previous, false, cardWidth, height, textStyle, cardColor, radius, Modifier.align(Alignment.BottomCenter))
+            HalfCard(bottomChar, false, cardWidth, height, textStyle, cardColor, radius, Modifier.align(Alignment.BottomCenter))
 
             if (p < 1f) {
                 if (p < 0.5f) {
