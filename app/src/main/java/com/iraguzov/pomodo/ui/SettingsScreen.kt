@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +52,7 @@ import com.iraguzov.pomodo.data.DigitLayout
 import com.iraguzov.pomodo.data.DigitStyle
 import com.iraguzov.pomodo.data.LIGHT_BACKGROUND
 import com.iraguzov.pomodo.data.Mode
+import kotlin.math.abs
 
 private enum class ColorTarget(val title: String) {
     PROGRESS("Цвет прогресса"),
@@ -161,11 +163,11 @@ fun SettingsScreen(
                     ) {
                         SelectableChip("Тёмный", settings.backgroundColor == DARK_BACKGROUND, Color(settings.progressColor)) {
                             onBackgroundColor(DARK_BACKGROUND)
-                            if (settings.digitColor == 0xFF000000L) onDigitColor(0xFFFFFFFFL)
+                            onDigitColor(readableDigitColor(DARK_BACKGROUND, settings.digitColor))
                         }
                         SelectableChip("Светлый", settings.backgroundColor == LIGHT_BACKGROUND, Color(settings.progressColor)) {
                             onBackgroundColor(LIGHT_BACKGROUND)
-                            if (settings.digitColor == 0xFFFFFFFFL) onDigitColor(0xFF101014L)
+                            onDigitColor(readableDigitColor(LIGHT_BACKGROUND, settings.digitColor))
                         }
                     }
                 }
@@ -337,4 +339,15 @@ private fun StylePreviewChip(
                 .alpha(if (selected) 1f else 0.6f),
         )
     }
+}
+
+/**
+ * После смены фона цифры могут слиться с ним — тогда возвращаем контрастный цвет,
+ * а осознанно выбранный пользователем оставляем как есть.
+ */
+private fun readableDigitColor(background: Long, digits: Long): Long {
+    val backgroundLuminance = Color(background.toInt()).luminance()
+    val digitsLuminance = Color(digits.toInt()).luminance()
+    if (abs(backgroundLuminance - digitsLuminance) >= 0.35f) return digits
+    return if (backgroundLuminance < 0.5f) 0xFFFFFFFFL else 0xFF101014L
 }

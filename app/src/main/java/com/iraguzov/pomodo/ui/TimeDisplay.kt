@@ -31,9 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.StrokeCap
@@ -79,6 +82,7 @@ fun linesFor(parts: List<String>, layout: DigitLayout): List<String> =
     if (layout == DigitLayout.HORIZONTAL) listOf(parts.joinToString(":")) else parts
 
 private fun digitWidthFactor(style: DigitStyle) = when (style) {
+    DigitStyle.SEGMENT -> 0.66f
     DigitStyle.NIXIE -> 0.82f
     DigitStyle.FLIP -> 0.88f
     DigitStyle.MONO -> 0.64f
@@ -89,6 +93,7 @@ private fun digitWidthFactor(style: DigitStyle) = when (style) {
 private fun lineHeightFactor(style: DigitStyle) = when (style) {
     DigitStyle.FLIP -> 1.15f
     DigitStyle.NIXIE -> 1.30f
+    DigitStyle.SEGMENT -> 1.12f
     else -> 1.06f
 }
 
@@ -120,6 +125,7 @@ private fun baseStyle(style: DigitStyle, fontSize: TextUnit, color: Color): Text
         DigitStyle.SERIF -> common.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Light)
         DigitStyle.FLIP -> common.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium)
         DigitStyle.NIXIE -> common.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Light)
+        DigitStyle.SEGMENT -> common.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal)
         DigitStyle.OUTLINE -> common.copy(
             fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.Bold,
@@ -167,6 +173,9 @@ fun TimeDisplay(
                     line.forEach { c ->
                         val cellWidth = fontDp * (if (c == ':') COLON_FACTOR else digitFactor)
                         when {
+                            c == ':' && style == DigitStyle.SEGMENT ->
+                                SegmentColon(cellWidth, cellHeight, glowColor)
+
                             c == ':' -> Cell(cellWidth, cellHeight) {
                                 PlainGlyph(":", style, textStyle, glowColor)
                             }
@@ -179,6 +188,9 @@ fun TimeDisplay(
                                 background = background,
                                 color = color,
                             )
+
+                            style == DigitStyle.SEGMENT ->
+                                SegmentCell(c, cellWidth, cellHeight, glowColor)
 
                             style == DigitStyle.NIXIE -> NixieCell(
                                 char = c,
@@ -416,6 +428,121 @@ private fun AnodeGrid(glow: Color) {
                 start = Offset(x, size.height * 0.14f),
                 end = Offset(x, size.height * 0.86f),
                 strokeWidth = size.width * 0.012f,
+            )
+        }
+    }
+}
+
+/** Какие сегменты горят у каждой цифры. */
+private val SegmentMap = mapOf(
+    '0' to "abcdef",
+    '1' to "bc",
+    '2' to "abged",
+    '3' to "abgcd",
+    '4' to "fgbc",
+    '5' to "afgcd",
+    '6' to "afgecd",
+    '7' to "abc",
+    '8' to "abcdefg",
+    '9' to "abcdfg",
+)
+
+/** Погашенные сегменты на настоящем индикаторе всё равно чуть видны. */
+private const val SegmentOffAlpha = 0.09f
+
+/** Индикатор слегка наклонён вправо — как почти все настоящие. */
+private const val SegmentSlant = 0.09f
+
+@Composable
+private fun SegmentCell(char: Char, width: Dp, height: Dp, color: Color) {
+    Canvas(Modifier.size(width, height)) {
+        val lit = SegmentMap[char].orEmpty()
+
+        val padX = size.width * 0.05f
+        val padY = size.height * 0.06f
+        val top = padY
+        val bottom = size.height - padY
+        val innerHeight = bottom - top
+        val left = padX
+        // наклон уводит верх вправо, поэтому справа оставляем на него место
+        val right = size.width - padX - innerHeight * SegmentSlant
+        val thickness = innerHeight * 0.115f
+        val gap = thickness * 0.2f
+        val middle = (top + bottom) / 2f
+        val half = thickness / 2f
+
+        fun skew(x: Float, y: Float) = Offset(x + (bottom - y) * SegmentSlant, y)
+
+        fun horizontal(centerY: Float): Path {
+            val xa = left + gap
+            val xb = right - gap
+            return Path().apply {
+                val points = listOf(
+                    skew(xa, centerY),
+                    skew(xa + half, centerY - half),
+                    skew(xb - half, centerY - half),
+                    skew(xb, centerY),
+                    skew(xb - half, centerY + half),
+                    skew(xa + half, centerY + half),
+                )
+                moveTo(points[0].x, points[0].y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+                close()
+            }
+        }
+
+        fun vertical(centerX: Float, from: Float, to: Float): Path {
+            val ya = from + gap
+            val yb = to - gap
+            return Path().apply {
+                val points = listOf(
+                    skew(centerX, ya),
+                    skew(centerX + half, ya + half),
+                    skew(centerX + half, yb - half),
+                    skew(centerX, yb),
+                    skew(centerX - half, yb - half),
+                    skew(centerX - half, ya + half),
+                )
+                moveTo(points[0].x, points[0].y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+                close()
+            }
+        }
+
+        val segments = listOf(
+            'a' to horizontal(top + half),
+            'g' to horizontal(middle),
+            'd' to horizontal(bottom - half),
+            'f' to vertical(left + half, top, middle),
+            'b' to vertical(right - half, top, middle),
+            'e' to vertical(left + half, middle, bottom),
+            'c' to vertical(right - half, middle, bottom),
+        )
+
+        segments.forEach { (id, path) ->
+            val on = id in lit
+            drawPath(path, color = if (on) color else color.copy(alpha = SegmentOffAlpha))
+            if (on) {
+                // лёгкое свечение по краю зажжённого сегмента
+                drawPath(path, color = color.copy(alpha = 0.22f), style = Stroke(width = thickness * 0.5f))
+            }
+        }
+    }
+}
+
+/** Двоеточие индикатора — две квадратные точки, а не глиф шрифта. */
+@Composable
+private fun SegmentColon(width: Dp, height: Dp, color: Color) {
+    Canvas(Modifier.size(width, height)) {
+        val side = size.width * 0.52f
+        val centerX = size.width / 2f
+        listOf(0.36f, 0.64f).forEach { fraction ->
+            val centerY = size.height * fraction
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(centerX - side / 2f + (size.height * (1f - fraction) - size.height / 2f) * SegmentSlant, centerY - side / 2f),
+                size = Size(side, side),
+                cornerRadius = CornerRadius(side * 0.25f),
             )
         }
     }

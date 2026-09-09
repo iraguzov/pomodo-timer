@@ -24,6 +24,7 @@ func timeLines(parts: [String], layout: DigitLayout) -> [String] {
 extension DigitStyle {
     var digitWidthFactor: Double {
         switch self {
+        case .segment: 0.66
         case .nixie: 0.82
         case .flip: 0.88
         case .mono, .outline: 0.64
@@ -35,6 +36,7 @@ extension DigitStyle {
         switch self {
         case .flip: 1.15
         case .nixie: 1.30
+        case .segment: 1.12
         default: 1.06
         }
     }
@@ -47,6 +49,7 @@ extension DigitStyle {
         case .serif: .system(size: size, weight: .light, design: .serif)
         case .flip: .system(size: size, weight: .medium)
         case .nixie: .system(size: size, weight: .light)
+        case .segment: .system(size: size)
         case .outline: .system(size: size, weight: .bold)
         }
     }
@@ -104,8 +107,12 @@ struct TimeDisplay: View {
         let width = fontSize * (character == ":" ? colonFactor : style.digitWidthFactor)
         let height = fontSize * style.lineHeightFactor
 
-        if character == ":" {
+        if character == ":" && style == .segment {
+            SegmentColon(width: width, height: height, color: color)
+        } else if character == ":" {
             glyph(":", fontSize: fontSize).frame(width: width, height: height)
+        } else if style == .segment {
+            SegmentCell(character: character, width: width, height: height, color: color)
         } else if style == .nixie {
             NixieCell(
                 character: character,

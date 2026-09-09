@@ -131,11 +131,17 @@ struct SettingsView: View {
         HStack(spacing: 10) {
             presetButton("Тёмный", value: Palette.darkBackground) {
                 settings.backgroundColor = Palette.darkBackground
-                if settings.digitColor == 0x000000 { settings.digitColor = 0xFFFFFF }
+                settings.digitColor = readableDigitColor(
+                    background: Palette.darkBackground,
+                    digits: settings.digitColor
+                )
             }
             presetButton("Светлый", value: Palette.lightBackground) {
                 settings.backgroundColor = Palette.lightBackground
-                if settings.digitColor == 0xFFFFFF { settings.digitColor = 0x101014 }
+                settings.digitColor = readableDigitColor(
+                    background: Palette.lightBackground,
+                    digits: settings.digitColor
+                )
             }
         }
     }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Начертание цифр на экране таймера.
 enum DigitStyle: String, CaseIterable, Identifiable {
-    case minimal, neon, outline, mono, serif, flip, nixie
+    case minimal, neon, outline, mono, serif, flip, nixie, segment
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum DigitStyle: String, CaseIterable, Identifiable {
         case .serif: "Серифы"
         case .flip: "Флип"
         case .nixie: "Лампы"
+        case .segment: "Сегменты"
         }
     }
 }
@@ -55,6 +56,15 @@ enum Palette {
         0xFF4D5E, 0xFF7A29, 0xFFC53D, 0x3DDC84, 0x00E5FF, 0x4D7CFE,
         0xA855F7, 0xFF2D95, 0xFFFFFF, 0x8A8A8F, 0x1E1E22, 0x000000,
     ]
+}
+
+/// После смены фона цифры могут слиться с ним — тогда возвращаем контрастный цвет,
+/// а осознанно выбранный пользователем оставляем как есть.
+func readableDigitColor(background: UInt32, digits: UInt32) -> UInt32 {
+    let backgroundLuminance = Color(rgb: background).luminance
+    let digitsLuminance = Color(rgb: digits).luminance
+    guard abs(backgroundLuminance - digitsLuminance) < 0.35 else { return digits }
+    return backgroundLuminance < 0.5 ? 0xFFFFFF : 0x101014
 }
 
 extension Color {

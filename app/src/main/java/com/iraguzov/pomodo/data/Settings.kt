@@ -21,6 +21,7 @@ enum class DigitStyle(val label: String) {
     SERIF("Серифы"),
     FLIP("Флип"),
     NIXIE("Лампы"),
+    SEGMENT("Сегменты"),
 }
 
 /** Как располагать части времени друг относительно друга. */
