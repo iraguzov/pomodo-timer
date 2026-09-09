@@ -30,15 +30,29 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class TimerState(
     val mode: Mode = Mode.WORK,
     val totalMs: Long = 0L,
-    val remainingMs: Long = 0L,
+    val elapsedMs: Long = 0L,
     val running: Boolean = false,
-    val finished: Boolean = false,
 ) {
     /** Таймер запущен или стоит на паузе — экран таймера показан. */
     val active: Boolean get() = totalMs > 0L
 
+    /** Сколько осталось до нуля. */
+    val remainingMs: Long get() = (totalMs - elapsedMs).coerceAtLeast(0L)
+
+    /** Сколько уже натикало сверх заданного времени. */
+    val overtimeMs: Long get() = (elapsedMs - totalMs).coerceAtLeast(0L)
+
+    val finished: Boolean get() = active && elapsedMs >= totalMs
+
+    /** Что показывать на табло: обратный отсчёт, а после нуля — время переработки. */
+    val displayMs: Long get() = if (finished) overtimeMs else remainingMs
+
     val progress: Float
-        get() = if (totalMs <= 0L) 0f else ((totalMs - remainingMs).toFloat() / totalMs).coerceIn(0f, 1f)
+        get() = if (totalMs <= 0L) 0f else (elapsedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+
+    /** Переработка тем же масштабом: полный экран = ещё один такой же отрезок. */
+    val overtimeProgress: Float
+        get() = if (totalMs <= 0L) 0f else (overtimeMs.toFloat() / totalMs).coerceIn(0f, 1f)
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -58,10 +72,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var tickJob: Job? = null
 
+    /** Отметка, чтобы провибрировать на нуле ровно один раз за прогон. */
+    private var finishNotified = false
+
     fun start(mode: Mode, totalSeconds: Int) {
         tickJob?.cancel()
         val total = totalSeconds.coerceAtLeast(1) * 1000L
-        timer = TimerState(mode = mode, totalMs = total, remainingMs = total, running = true)
+        finishNotified = false
+        timer = TimerState(mode = mode, totalMs = total, elapsedMs = 0L, running = true)
         runLoop()
     }
 
@@ -72,8 +90,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resume() {
-        if (timer.remainingMs <= 0L) return
-        timer = timer.copy(running = true, finished = false)
+        if (!timer.active) return
+        timer = timer.copy(running = true)
         runLoop()
     }
 
@@ -81,7 +99,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restart() {
         tickJob?.cancel()
-        timer = timer.copy(remainingMs = timer.totalMs, running = true, finished = false)
+        finishNotified = false
+        timer = timer.copy(elapsedMs = 0L, running = true)
         runLoop()
     }
 
@@ -91,17 +110,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         timer = TimerState()
     }
 
+    /**
+     * После нуля таймер не останавливается, а продолжает считать переработку —
+     * её показывает встречная полоса на экране таймера.
+     */
     private fun runLoop() {
-        val deadline = SystemClock.elapsedRealtime() + timer.remainingMs
+        val startedAt = SystemClock.elapsedRealtime() - timer.elapsedMs
         tickJob = viewModelScope.launch {
             while (isActive) {
-                val left = deadline - SystemClock.elapsedRealtime()
-                if (left <= 0L) {
-                    timer = timer.copy(remainingMs = 0L, running = false, finished = true)
+                timer = timer.copy(elapsedMs = SystemClock.elapsedRealtime() - startedAt)
+                if (timer.finished && !finishNotified) {
+                    finishNotified = true
                     if (settings.value.vibrateOnFinish) vibrate()
-                    break
                 }
-                timer = timer.copy(remainingMs = left)
                 delay(40)
             }
         }

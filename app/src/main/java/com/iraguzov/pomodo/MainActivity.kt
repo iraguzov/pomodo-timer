@@ -43,18 +43,20 @@ private fun PomodoApp(vm: AppViewModel = viewModel()) {
     val darkBackground = Color(settings.backgroundColor).luminance() < 0.5f
 
     var screen by remember { mutableStateOf(Screen.HOME) }
+    // Настройки можно открыть прямо из работающего таймера — тогда показываем их, а не его.
+    val onTimerScreen = timer.active && screen != Screen.SETTINGS
 
     LaunchedEffect(timer.running, settings.keepScreenOn) {
         view.keepScreenOn = settings.keepScreenOn && timer.running
     }
 
     // Полноэкранный режим только на самом таймере.
-    LaunchedEffect(timer.active, darkBackground) {
+    LaunchedEffect(onTimerScreen, darkBackground) {
         val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
         val controller: WindowInsetsControllerCompat = WindowCompat.getInsetsController(window, view)
         controller.isAppearanceLightStatusBars = !darkBackground
         controller.isAppearanceLightNavigationBars = !darkBackground
-        if (timer.active) {
+        if (onTimerScreen) {
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -73,14 +75,6 @@ private fun PomodoApp(vm: AppViewModel = viewModel()) {
 
     MaterialTheme(colorScheme = scheme) {
         when {
-            timer.active -> TimerScreen(
-                state = timer,
-                settings = settings,
-                onToggle = vm::toggle,
-                onRestart = vm::restart,
-                onExit = vm::stop,
-            )
-
             screen == Screen.SETTINGS -> SettingsScreen(
                 settings = settings,
                 onBack = { screen = Screen.HOME },
@@ -95,6 +89,15 @@ private fun PomodoApp(vm: AppViewModel = viewModel()) {
                 onDigitColor = vm::setDigitColor,
                 onKeepScreenOn = vm::setKeepScreenOn,
                 onVibrate = vm::setVibrate,
+            )
+
+            timer.active -> TimerScreen(
+                state = timer,
+                settings = settings,
+                onToggle = vm::toggle,
+                onRestart = vm::restart,
+                onExit = vm::stop,
+                onOpenSettings = { screen = Screen.SETTINGS },
             )
 
             else -> HomeScreen(

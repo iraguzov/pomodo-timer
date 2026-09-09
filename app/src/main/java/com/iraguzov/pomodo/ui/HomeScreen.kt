@@ -3,8 +3,11 @@ package com.iraguzov.pomodo.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -37,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.iraguzov.pomodo.data.AppSettings
 import com.iraguzov.pomodo.data.DigitLayout
 import com.iraguzov.pomodo.data.Mode
@@ -58,25 +63,33 @@ fun HomeScreen(
     var editing by remember { mutableStateOf(false) }
     val seconds = settings.secondsFor(mode)
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(background)
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
+        val viewportHeight = maxHeight
+        // В альбомной ориентации всё не помещается, поэтому колонка прокручивается,
+        // а табло ужимается под высоту экрана.
+        val previewHeight = minOf(150.dp, viewportHeight * 0.34f)
+
         IconButton(
             onClick = onOpenSettings,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(8.dp),
+                .padding(8.dp)
+                .zIndex(1f),
         ) {
             Icon(Icons.Rounded.Settings, "Настройки", tint = onBackground.copy(alpha = 0.7f))
         }
 
         Column(
             Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = viewportHeight)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -96,7 +109,7 @@ fun HomeScreen(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(150.dp)
+                    .height(previewHeight)
                     .clip(RoundedCornerShape(20.dp))
                     .clickable { editing = true },
             ) {
