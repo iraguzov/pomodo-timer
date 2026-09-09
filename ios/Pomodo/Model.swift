@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Начертание цифр на экране таймера.
 enum DigitStyle: String, CaseIterable, Identifiable {
-    case minimal, neon, outline, mono, serif, flip
+    case minimal, neon, outline, mono, serif, flip, nixie
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum DigitStyle: String, CaseIterable, Identifiable {
         case .mono: "Моно"
         case .serif: "Серифы"
         case .flip: "Флип"
+        case .nixie: "Лампы"
         }
     }
 }

@@ -5,11 +5,13 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -27,9 +29,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
@@ -73,13 +79,33 @@ fun linesFor(parts: List<String>, layout: DigitLayout): List<String> =
     if (layout == DigitLayout.HORIZONTAL) listOf(parts.joinToString(":")) else parts
 
 private fun digitWidthFactor(style: DigitStyle) = when (style) {
+    DigitStyle.NIXIE -> 0.82f
     DigitStyle.FLIP -> 0.88f
     DigitStyle.MONO -> 0.64f
     DigitStyle.OUTLINE -> 0.64f
     else -> 0.58f
 }
 
-private fun lineHeightFactor(style: DigitStyle) = if (style == DigitStyle.FLIP) 1.15f else 1.06f
+private fun lineHeightFactor(style: DigitStyle) = when (style) {
+    DigitStyle.FLIP -> 1.15f
+    DigitStyle.NIXIE -> 1.30f
+    else -> 1.06f
+}
+
+/** Тёплый янтарь газоразрядной лампы. */
+private val NixieAmber = Color(0xFFFF8A2B)
+
+/**
+ * Лампа светится только ярким насыщенным цветом. Белый, серый и тёмный цвет цифр
+ * свечением не будет, поэтому для них подставляем классический янтарь.
+ */
+private fun nixieGlow(color: Color): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    val saturation = hsv[1]
+    val value = hsv[2]
+    return if (saturation < 0.35f || value < 0.5f) NixieAmber else color
+}
 
 private const val COLON_FACTOR = 0.34f
 
@@ -93,6 +119,7 @@ private fun baseStyle(style: DigitStyle, fontSize: TextUnit, color: Color): Text
         DigitStyle.MONO -> common.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
         DigitStyle.SERIF -> common.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Light)
         DigitStyle.FLIP -> common.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium)
+        DigitStyle.NIXIE -> common.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Light)
         DigitStyle.OUTLINE -> common.copy(
             fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.Bold,
@@ -127,7 +154,8 @@ fun TimeDisplay(
         val fontDp: Dp = minOf(byWidth, byHeight)
         val fontSize = with(LocalDensity.current) { fontDp.toSp() }
 
-        val textStyle = baseStyle(style, fontSize, color)
+        val glowColor = if (style == DigitStyle.NIXIE) nixieGlow(color) else color
+        val textStyle = baseStyle(style, fontSize, glowColor)
         val cellHeight = fontDp * lineFactor
 
         Column(
@@ -140,7 +168,7 @@ fun TimeDisplay(
                         val cellWidth = fontDp * (if (c == ':') COLON_FACTOR else digitFactor)
                         when {
                             c == ':' -> Cell(cellWidth, cellHeight) {
-                                PlainGlyph(":", style, textStyle, color)
+                                PlainGlyph(":", style, textStyle, glowColor)
                             }
 
                             style == DigitStyle.FLIP -> FlipCell(
@@ -152,8 +180,17 @@ fun TimeDisplay(
                                 color = color,
                             )
 
+                            style == DigitStyle.NIXIE -> NixieCell(
+                                char = c,
+                                width = cellWidth,
+                                height = cellHeight,
+                                textStyle = textStyle,
+                                background = background,
+                                glow = glowColor,
+                            )
+
                             else -> Cell(cellWidth, cellHeight) {
-                                PlainGlyph(c.toString(), style, textStyle, color)
+                                PlainGlyph(c.toString(), style, textStyle, glowColor)
                             }
                         }
                     }
@@ -171,13 +208,18 @@ private fun Cell(width: Dp, height: Dp, content: @Composable () -> Unit) {
 @Composable
 private fun PlainGlyph(text: String, style: DigitStyle, textStyle: TextStyle, color: Color) {
     val unbounded = Modifier.wrapContentSize(Alignment.Center, unbounded = true)
-    if (style == DigitStyle.NEON) {
+    if (style == DigitStyle.NEON || style == DigitStyle.NIXIE) {
         val blur = with(LocalDensity.current) { textStyle.fontSize.toPx() * 0.16f }
-        val core = lerp(color, Color.White, 0.8f)
+        val core = if (style == DigitStyle.NIXIE) {
+            lerp(color, Color(0xFFFFE3B8), 0.35f)
+        } else {
+            lerp(color, Color.White, 0.8f)
+        }
+        val outer = if (style == DigitStyle.NIXIE) 3.2f else 2.4f
         Text(text, modifier = unbounded, maxLines = 1, softWrap = false,
-            style = textStyle.copy(color = color.copy(alpha = 0.55f), shadow = Shadow(color, Offset.Zero, blur * 2.4f)))
+            style = textStyle.copy(color = color.copy(alpha = 0.7f), shadow = Shadow(color, Offset.Zero, blur * outer)))
         Text(text, modifier = unbounded, maxLines = 1, softWrap = false,
-            style = textStyle.copy(color = color.copy(alpha = 0.9f), shadow = Shadow(color, Offset.Zero, blur * 1.2f)))
+            style = textStyle.copy(color = color, shadow = Shadow(color, Offset.Zero, blur * 1.4f)))
         Text(text, modifier = unbounded, maxLines = 1, softWrap = false,
             style = textStyle.copy(color = core, shadow = Shadow(color, Offset.Zero, blur * 0.5f)))
     } else {
@@ -295,5 +337,86 @@ private fun HalfCard(
         val x = (size.width - layout.size.width) / 2f
         val y = fullHeight / 2f - glyphCenter - if (top) 0f else size.height
         drawText(layout, topLeft = Offset(x, y))
+    }
+}
+
+/**
+ * Цифра в газоразрядной лампе: горящий катод впереди, тусклые силуэты соседних цифр
+ * позади, сетка анода поверх и тёплый ореол внутри колбы.
+ */
+@Composable
+private fun NixieCell(
+    char: Char,
+    width: Dp,
+    height: Dp,
+    textStyle: TextStyle,
+    background: Color,
+    glow: Color,
+) {
+    val tubeWidth = width * 0.94f
+    val glass = lerp(background, glow, 0.10f)
+    val shape = RoundedCornerShape(
+        topStart = tubeWidth * 0.46f,
+        topEnd = tubeWidth * 0.46f,
+        bottomStart = tubeWidth * 0.22f,
+        bottomEnd = tubeWidth * 0.22f,
+    )
+    val unlit = remember(char) {
+        val digit = char - '0'
+        if (digit in 0..9) listOf((digit + 3) % 10, (digit + 7) % 10) else emptyList()
+    }
+
+    Box(Modifier.size(width, height), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(tubeWidth, height)
+                .clip(shape)
+                .background(glass)
+                .border(tubeWidth * 0.02f, glow.copy(alpha = 0.3f), shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(listOf(glow.copy(alpha = 0.26f), Color.Transparent)),
+                    ),
+            )
+
+            unlit.forEachIndexed { index, digit ->
+                Text(
+                    digit.toString(),
+                    modifier = Modifier
+                        .wrapContentSize(Alignment.Center, unbounded = true)
+                        .offset(y = height * if (index == 0) -0.035f else 0.035f)
+                        .scale(0.94f)
+                        .alpha(0.16f),
+                    maxLines = 1,
+                    softWrap = false,
+                    style = textStyle,
+                )
+            }
+
+            AnodeGrid(glow)
+
+            PlainGlyph(char.toString(), DigitStyle.NIXIE, textStyle, glow)
+        }
+    }
+}
+
+/** Тонкая сетка анода перед цифрой. */
+@Composable
+private fun AnodeGrid(glow: Color) {
+    Canvas(Modifier.fillMaxSize()) {
+        val step = size.width / 8f
+        for (i in 1..7) {
+            val x = step * i
+            drawLine(
+                color = glow.copy(alpha = 0.16f),
+                start = Offset(x, size.height * 0.14f),
+                end = Offset(x, size.height * 0.86f),
+                strokeWidth = size.width * 0.012f,
+            )
+        }
     }
 }

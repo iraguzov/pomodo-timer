@@ -24,13 +24,20 @@ func timeLines(parts: [String], layout: DigitLayout) -> [String] {
 extension DigitStyle {
     var digitWidthFactor: Double {
         switch self {
+        case .nixie: 0.82
         case .flip: 0.88
         case .mono, .outline: 0.64
         default: 0.58
         }
     }
 
-    var lineHeightFactor: Double { self == .flip ? 1.15 : 1.06 }
+    var lineHeightFactor: Double {
+        switch self {
+        case .flip: 1.15
+        case .nixie: 1.30
+        default: 1.06
+        }
+    }
 
     func font(size: Double) -> Font {
         switch self {
@@ -39,9 +46,21 @@ extension DigitStyle {
         case .mono: .system(size: size, weight: .medium, design: .monospaced)
         case .serif: .system(size: size, weight: .light, design: .serif)
         case .flip: .system(size: size, weight: .medium)
+        case .nixie: .system(size: size, weight: .light)
         case .outline: .system(size: size, weight: .bold)
         }
     }
+}
+
+/// Тёплый янтарь газоразрядной лампы.
+let nixieAmber = Color(rgb: 0xFF8A2B)
+
+/// Лампа светится только ярким насыщенным цветом. Белый, серый и тёмный цвет цифр
+/// свечением не будет, поэтому для них подставляем классический янтарь.
+func nixieGlow(_ color: Color) -> Color {
+    var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+    UIColor(color).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+    return (saturation < 0.35 || brightness < 0.5) ? nixieAmber : color
 }
 
 private let colonFactor = 0.34
@@ -78,6 +97,8 @@ struct TimeDisplay: View {
         }
     }
 
+    private var glowColor: Color { style == .nixie ? nixieGlow(color) : color }
+
     @ViewBuilder
     private func cell(_ character: Character, index: Int, fontSize: Double) -> some View {
         let width = fontSize * (character == ":" ? colonFactor : style.digitWidthFactor)
@@ -85,6 +106,15 @@ struct TimeDisplay: View {
 
         if character == ":" {
             glyph(":", fontSize: fontSize).frame(width: width, height: height)
+        } else if style == .nixie {
+            NixieCell(
+                character: character,
+                width: width,
+                height: height,
+                fontSize: fontSize,
+                glow: glowColor,
+                background: background
+            )
         } else if style == .flip {
             FlipDigit(
                 character: character,
@@ -102,17 +132,19 @@ struct TimeDisplay: View {
     @ViewBuilder
     private func glyph(_ text: String, fontSize: Double) -> some View {
         switch style {
-        case .neon:
-            let core = Color(
-                UIColor(color).blend(with: .white, fraction: 0.8)
-            )
+        case .neon, .nixie:
+            let glow = glowColor
+            let core = style == .nixie
+                ? Color(UIColor(glow).blend(with: UIColor(Color(rgb: 0xFFE3B8)), fraction: 0.35))
+                : Color(UIColor(glow).blend(with: .white, fraction: 0.8))
+            let outer = style == .nixie ? 0.34 : 0.26
             ZStack {
-                Text(text).font(style.font(size: fontSize)).foregroundStyle(color.opacity(0.55))
-                    .shadow(color: color, radius: fontSize * 0.26)
-                Text(text).font(style.font(size: fontSize)).foregroundStyle(color.opacity(0.9))
-                    .shadow(color: color, radius: fontSize * 0.13)
+                Text(text).font(style.font(size: fontSize)).foregroundStyle(glow.opacity(0.7))
+                    .shadow(color: glow, radius: fontSize * outer)
+                Text(text).font(style.font(size: fontSize)).foregroundStyle(glow)
+                    .shadow(color: glow, radius: fontSize * 0.15)
                 Text(text).font(style.font(size: fontSize)).foregroundStyle(core)
-                    .shadow(color: color, radius: fontSize * 0.05)
+                    .shadow(color: glow, radius: fontSize * 0.05)
             }
             .fixedSize()
         case .outline:
