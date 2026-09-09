@@ -209,6 +209,9 @@ private fun FlipCell(
             shown = char
             progress.snapTo(0f)
             progress.animateTo(1f, tween(durationMillis = 420, easing = LinearEasing))
+            // Переворот закончился: нижняя половина тоже переезжает на новую цифру,
+            // иначе она так и осталась бы показывать предыдущую.
+            previous = shown
         }
     }
 
