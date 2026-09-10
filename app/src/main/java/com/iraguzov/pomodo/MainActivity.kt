@@ -22,6 +22,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.iraguzov.pomodo.ui.HomeScreen
 import com.iraguzov.pomodo.ui.SettingsScreen
+import com.iraguzov.pomodo.ui.StatsScreen
 import com.iraguzov.pomodo.ui.TimerScreen
 
 class MainActivity : ComponentActivity() {
@@ -33,7 +34,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { HOME, SETTINGS }
+private enum class Screen { HOME, SETTINGS, STATS }
 
 @Composable
 private fun PomodoApp(vm: AppViewModel = viewModel()) {
@@ -44,7 +45,7 @@ private fun PomodoApp(vm: AppViewModel = viewModel()) {
 
     var screen by remember { mutableStateOf(Screen.HOME) }
     // Настройки можно открыть прямо из работающего таймера — тогда показываем их, а не его.
-    val onTimerScreen = timer.active && screen != Screen.SETTINGS
+    val onTimerScreen = timer.active && screen == Screen.HOME
 
     LaunchedEffect(timer.running, settings.keepScreenOn) {
         view.keepScreenOn = settings.keepScreenOn && timer.running
@@ -91,6 +92,13 @@ private fun PomodoApp(vm: AppViewModel = viewModel()) {
                 onVibrate = vm::setVibrate,
             )
 
+            screen == Screen.STATS -> StatsScreen(
+                sessions = vm.history,
+                settings = settings,
+                onBack = { screen = Screen.HOME },
+                onClear = vm::clearHistory,
+            )
+
             timer.active -> TimerScreen(
                 state = timer,
                 settings = settings,
@@ -105,6 +113,7 @@ private fun PomodoApp(vm: AppViewModel = viewModel()) {
                 onStart = vm::start,
                 onSetDuration = vm::setDuration,
                 onOpenSettings = { screen = Screen.SETTINGS },
+                onOpenStats = { screen = Screen.STATS },
             )
         }
     }

@@ -15,6 +15,8 @@ import com.iraguzov.pomodo.data.AppSettings
 import com.iraguzov.pomodo.data.DigitLayout
 import com.iraguzov.pomodo.data.DigitStyle
 import com.iraguzov.pomodo.data.Mode
+import com.iraguzov.pomodo.data.HistoryStore
+import com.iraguzov.pomodo.data.Session
 import com.iraguzov.pomodo.data.SettingsRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,15 +41,40 @@ data class TimerState(
     /** Сколько осталось до нуля. */
     val remainingMs: Long get() = (totalMs - elapsedMs).coerceAtLeast(0L)
 
+    /** Сколько натикало сверх заданного времени. */
+    val overtimeMs: Long get() = (elapsedMs - totalMs).coerceAtLeast(0L)
+
     val finished: Boolean get() = active && elapsedMs >= totalMs
 
+    /** Что на табло: обратный отсчёт, а после нуля — время переработки. */
+    val displayMs: Long get() = if (finished) overtimeMs else remainingMs
+
+    /**
+     * Весь экран — это всё время с момента старта. Пока идёт отсчёт, это заданное время;
+     * дальше масштаб растёт вместе с переработкой.
+     */
+    private val spanMs: Long get() = maxOf(totalMs, elapsedMs)
+
+    /**
+     * Доля экрана под заданным временем: до нуля заполняется, после — сжимается
+     * пропорционально. Полностью переработка её никогда не вытеснит.
+     */
     val progress: Float
-        get() = if (totalMs <= 0L) 0f else (elapsedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+        get() = if (spanMs <= 0L) 0f else (minOf(elapsedMs, totalMs).toFloat() / spanMs).coerceIn(0f, 1f)
+
+    /** Доля экрана под переработкой — остаток справа от заданного времени. */
+    val overtimeProgress: Float
+        get() = if (spanMs <= 0L) 0f else (overtimeMs.toFloat() / spanMs).coerceIn(0f, 1f)
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = SettingsRepository(app)
+    private val historyStore = HistoryStore(app)
+
+    /** История прогонов, целиком локальная. */
+    var history by mutableStateOf<List<Session>>(emptyList())
+        private set
 
     // Первое значение читаем синхронно, иначе на холодном старте на кадр мигают цвета по умолчанию.
     private val initialSettings: AppSettings = runBlocking {
@@ -65,10 +92,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Отметка, чтобы провибрировать на нуле ровно один раз за прогон. */
     private var finishNotified = false
 
+    /** Когда начался текущий прогон — по календарным часам, для истории. */
+    private var runStartedAt = 0L
+
+    init {
+        viewModelScope.launch { history = historyStore.load() }
+    }
+
     fun start(mode: Mode, totalSeconds: Int) {
         tickJob?.cancel()
+        commitRun()
         val total = totalSeconds.coerceAtLeast(1) * 1000L
         finishNotified = false
+        runStartedAt = System.currentTimeMillis()
         timer = TimerState(mode = mode, totalMs = total, elapsedMs = 0L, running = true)
         runLoop()
     }
@@ -80,7 +116,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resume() {
-        if (!timer.active || timer.finished) return
+        if (!timer.active) return
         timer = timer.copy(running = true)
         runLoop()
     }
@@ -89,7 +125,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restart() {
         tickJob?.cancel()
+        commitRun()
         finishNotified = false
+        runStartedAt = System.currentTimeMillis()
         timer = timer.copy(elapsedMs = 0L, running = true)
         runLoop()
     }
@@ -97,23 +135,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun stop() {
         tickJob?.cancel()
         tickJob = null
+        commitRun()
         timer = TimerState()
     }
 
+    /**
+     * Записывает завершённый прогон в историю. Совсем короткие пропускаем —
+     * это случайные нажатия, а не работа.
+     */
+    private fun commitRun(blocking: Boolean = false) {
+        val run = timer
+        if (!run.active || run.elapsedMs < MIN_RECORDED_MS) return
+        val session = Session(
+            mode = run.mode,
+            startedAt = runStartedAt,
+            plannedMs = run.totalMs,
+            elapsedMs = run.elapsedMs,
+        )
+        if (blocking) {
+            history = historyStore.appendBlocking(session)
+        } else {
+            viewModelScope.launch { history = historyStore.append(session) }
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch { history = historyStore.clear() }
+    }
+
+    /** После нуля отсчёт не останавливается, а продолжает копить переработку. */
     private fun runLoop() {
         val startedAt = SystemClock.elapsedRealtime() - timer.elapsedMs
         tickJob = viewModelScope.launch {
             while (isActive) {
-                val elapsed = SystemClock.elapsedRealtime() - startedAt
-                if (elapsed >= timer.totalMs) {
-                    timer = timer.copy(elapsedMs = timer.totalMs, running = false)
-                    if (!finishNotified) {
-                        finishNotified = true
-                        if (settings.value.vibrateOnFinish) vibrate()
-                    }
-                    break
+                timer = timer.copy(elapsedMs = SystemClock.elapsedRealtime() - startedAt)
+                if (timer.finished && !finishNotified) {
+                    finishNotified = true
+                    if (settings.value.vibrateOnFinish) vibrate()
                 }
-                timer = timer.copy(elapsedMs = elapsed)
                 delay(40)
             }
         }
@@ -153,6 +212,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         tickJob?.cancel()
+        // Корутины здесь запускать поздно, поэтому дописываем историю синхронно.
+        commitRun(blocking = true)
         super.onCleared()
+    }
+
+    private companion object {
+        const val MIN_RECORDED_MS = 5_000L
     }
 }

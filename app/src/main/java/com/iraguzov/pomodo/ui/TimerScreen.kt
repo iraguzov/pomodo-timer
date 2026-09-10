@@ -34,8 +34,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,7 @@ fun TimerScreen(
 ) {
     val background = Color(settings.backgroundColor)
     val progressColor = Color(settings.progressColor)
+    val overtimeColor = remember(settings.progressColor) { oppositeOf(progressColor) }
     val digitColor = Color(settings.digitColor)
 
     var controlsVisible by remember { mutableStateOf(false) }
@@ -82,15 +85,25 @@ fun TimerScreen(
     ) {
         if (settings.showProgress) {
             Canvas(Modifier.fillMaxSize()) {
-                val filled = size.width * state.progress
-                if (filled > 0f) {
-                    drawRect(color = progressColor, size = Size(filled, size.height))
+                // Слева заданное время, справа переработка; вместе они всегда занимают
+                // весь экран, а граница между ними едет пропорционально.
+                val worked = size.width * state.progress
+                val overtime = size.width * state.overtimeProgress
+                if (worked > 0f) {
+                    drawRect(color = progressColor, size = Size(worked, size.height))
+                }
+                if (overtime > 0f) {
+                    drawRect(
+                        color = overtimeColor,
+                        topLeft = Offset(worked, 0f),
+                        size = Size(overtime, size.height),
+                    )
                 }
             }
         }
 
         if (settings.showDigits) {
-            val parts = timeParts(state.remainingMs, settings.showSeconds)
+            val parts = timeParts(state.displayMs, settings.showSeconds)
             TimeDisplay(
                 lines = linesFor(parts, settings.digitLayout),
                 style = settings.digitStyle,
@@ -109,7 +122,7 @@ fun TimerScreen(
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
             Text(
-                text = if (state.finished) "Готово" else state.mode.label,
+                text = if (state.finished) "Сверх нормы" else state.mode.label,
                 color = digitColor.copy(alpha = 0.75f),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
@@ -138,7 +151,8 @@ fun TimerScreen(
                     if (state.running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     if (state.running) "Пауза" else "Продолжить",
                     digitColor,
-                ) { if (state.finished) onRestart() else onToggle() }
+                    onToggle,
+                )
                 ControlButton(Icons.Rounded.Refresh, "Заново", digitColor, onRestart)
                 ControlButton(Icons.Rounded.Settings, "Настройки", digitColor, onOpenSettings)
             }
@@ -156,4 +170,19 @@ private fun ControlButton(
     IconButton(onClick = onClick, modifier = Modifier.padding(horizontal = 14.dp)) {
         Icon(icon, contentDescription = description, tint = tint.copy(alpha = 0.85f), modifier = Modifier.size(30.dp))
     }
+}
+
+/**
+ * «Противоположный» цвет для полосы переработки: поворот оттенка на 180°.
+ * У серых и белых поворачивать нечего — им инвертируем яркость.
+ */
+fun oppositeOf(color: Color): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    if (hsv[1] < 0.12f) {
+        hsv[2] = 1f - hsv[2]
+    } else {
+        hsv[0] = (hsv[0] + 180f) % 360f
+    }
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }

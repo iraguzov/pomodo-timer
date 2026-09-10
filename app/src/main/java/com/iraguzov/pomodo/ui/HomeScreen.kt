@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
@@ -54,6 +55,7 @@ fun HomeScreen(
     onStart: (Mode, Int) -> Unit,
     onSetDuration: (Mode, Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenStats: () -> Unit,
 ) {
     val background = Color(settings.backgroundColor)
     val accent = Color(settings.progressColor)
@@ -74,14 +76,18 @@ fun HomeScreen(
         // а табло ужимается под высоту экрана.
         val previewHeight = minOf(150.dp, viewportHeight * 0.34f)
 
-        IconButton(
-            onClick = onOpenSettings,
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(8.dp)
                 .zIndex(1f),
         ) {
-            Icon(Icons.Rounded.Settings, "Настройки", tint = onBackground.copy(alpha = 0.7f))
+            IconButton(onClick = onOpenStats) {
+                Icon(Icons.Rounded.BarChart, "Статистика", tint = onBackground.copy(alpha = 0.7f))
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Rounded.Settings, "Настройки", tint = onBackground.copy(alpha = 0.7f))
+            }
         }
 
         Column(

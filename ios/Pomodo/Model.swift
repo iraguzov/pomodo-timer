@@ -34,7 +34,7 @@ enum DigitLayout: String, CaseIterable, Identifiable {
     }
 }
 
-enum Mode: String, CaseIterable, Identifiable {
+enum Mode: String, CaseIterable, Identifiable, Codable {
     case work, rest
 
     var id: String { rawValue }

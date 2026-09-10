@@ -13,7 +13,9 @@ struct RootView: View {
 
     @State private var settings = SettingsStore()
     @State private var timer = TimerModel()
+    @State private var history = HistoryStore()
     @State private var showSettings = false
+    @State private var showStats = false
 
     private var background: Color { Color(rgb: settings.backgroundColor) }
 
@@ -29,7 +31,8 @@ struct RootView: View {
                 HomeView(
                     settings: settings,
                     timer: timer,
-                    onOpenSettings: { showSettings = true }
+                    onOpenSettings: { showSettings = true },
+                    onOpenStats: { showStats = true }
                 )
             }
         }
@@ -37,9 +40,13 @@ struct RootView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
         }
+        .sheet(isPresented: $showStats) {
+            StatsView(history: history, settings: settings)
+        }
         .tint(Color(rgb: settings.progressColor))
         .preferredColorScheme(background.luminance < 0.5 ? .dark : .light)
         .onAppear {
+            timer.onSessionEnd = { history.append($0) }
             timer.hapticOnFinish = settings.hapticOnFinish
             updateIdleTimer()
         }

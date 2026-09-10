@@ -7,6 +7,7 @@ struct HomeView: View {
     let settings: SettingsStore
     let timer: TimerModel
     let onOpenSettings: () -> Void
+    let onOpenStats: () -> Void
 
     @State private var mode: Mode = .work
     @State private var editingDuration = false
@@ -42,10 +43,19 @@ struct HomeView: View {
                 }
             }
 
-            Button(action: onOpenSettings) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(foreground.opacity(0.7))
+            HStack(spacing: 18) {
+                Button(action: onOpenStats) {
+                    Image(systemName: "chart.bar.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(foreground.opacity(0.7))
+                }
+                .accessibilityLabel("Статистика")
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(foreground.opacity(0.7))
+                }
+                .accessibilityLabel("Настройки")
             }
             .padding(20)
         }

@@ -11,6 +11,7 @@ struct TimerView: View {
 
     private var background: Color { Color(rgb: settings.backgroundColor) }
     private var progressColor: Color { Color(rgb: settings.progressColor) }
+    private var overtimeColor: Color { oppositeOf(progressColor) }
     private var digitColor: Color { Color(rgb: settings.digitColor) }
     private var controlsShown: Bool { controlsVisible || !timer.running }
 
@@ -20,7 +21,13 @@ struct TimerView: View {
 
             if settings.showProgress {
                 GeometryReader { geo in
-                    progressColor.frame(width: geo.size.width * timer.progress)
+                    // Слева заданное время, справа переработка; вместе они всегда занимают
+                    // весь экран, а граница между ними едет пропорционально.
+                    HStack(spacing: 0) {
+                        progressColor.frame(width: geo.size.width * timer.progress)
+                        overtimeColor.frame(width: geo.size.width * timer.overtimeProgress)
+                        Spacer(minLength: 0)
+                    }
                 }
                 .ignoresSafeArea()
             }
@@ -29,7 +36,7 @@ struct TimerView: View {
                 TimeDisplay(
                     lines: timeLines(
                         parts: timeParts(
-                            remainingMs: timer.remainingMs,
+                            remainingMs: timer.displayMs,
                             showSeconds: settings.showSeconds
                         ),
                         layout: settings.digitLayout
@@ -43,7 +50,7 @@ struct TimerView: View {
             }
 
             VStack {
-                Text(timer.finished ? "Готово" : timer.mode.label)
+                Text(timer.finished ? "Сверх нормы" : timer.mode.label)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(digitColor.opacity(0.75))
                     .padding(.top, 20)
@@ -71,7 +78,7 @@ struct TimerView: View {
         HStack(spacing: 28) {
             control("xmark", "Выйти") { timer.stop() }
             control(timer.running ? "pause.fill" : "play.fill", "Пуск") {
-                timer.finished ? timer.restart() : timer.toggle()
+                timer.toggle()
             }
             control("arrow.clockwise", "Заново") { timer.restart() }
             control("gearshape.fill", "Настройки", action: onOpenSettings)
@@ -105,4 +112,17 @@ struct TimerView: View {
             controlsVisible = false
         }
     }
+}
+
+/// «Противоположный» цвет для полосы переработки: поворот оттенка на 180°.
+/// У серых и белых поворачивать нечего — им инвертируем яркость.
+func oppositeOf(_ color: Color) -> Color {
+    var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+    UIColor(color).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+    if saturation < 0.12 {
+        brightness = 1 - brightness
+    } else {
+        hue = (hue + 0.5).truncatingRemainder(dividingBy: 1)
+    }
+    return Color(UIColor(hue: hue, saturation: saturation, brightness: brightness, alpha: 1))
 }
