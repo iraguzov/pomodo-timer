@@ -62,11 +62,11 @@ enum StatsPeriod: String, CaseIterable, Identifiable {
         }
     }
 
-    var days: Int {
+    fileprivate var component: Calendar.Component {
         switch self {
-        case .day: 1
-        case .week: 7
-        case .month: 30
+        case .day: .day
+        case .week: .weekOfYear
+        case .month: .month
         }
     }
 }
@@ -80,10 +80,11 @@ struct Totals {
     var maxMs: Int { max(workedMs + overtimeMs, restMs) }
 }
 
-/// Столбик графика: подпись плюс те же три числа.
+/// Столбик графика: короткая подпись под осью, полная — для подсказки, плюс те же три числа.
 struct Bucket: Identifiable {
     let id: Int
     let label: String
+    let title: String
     let emphasised: Bool
     let totals: Totals
 }
@@ -96,26 +97,42 @@ private func totalsOf(_ sessions: [Session]) -> Totals {
     )
 }
 
-/// Периоды скользящие: «неделя» — это последние семь дней вместе с сегодняшним,
-/// а не календарная неделя, иначе в понедельник смотреть было бы не на что.
-func sessionsIn(_ sessions: [Session], period: StatsPeriod) -> [Session] {
-    let calendar = Calendar.current
-    let today = calendar.startOfDay(for: Date())
-    guard let from = calendar.date(byAdding: .day, value: -(period.days - 1), to: today) else {
-        return sessions
-    }
-    return sessions.filter { $0.startedAt >= from }
+/// Интерфейс русский, поэтому неделя начинается с понедельника независимо от настроек системы.
+var statsCalendar: Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.locale = Locale(identifier: "ru_RU")
+    calendar.firstWeekday = 2
+    return calendar
 }
 
-func totalsFor(_ sessions: [Session], period: StatsPeriod) -> Totals {
-    totalsOf(sessionsIn(sessions, period: period))
+/// Периоды календарные: день, неделя с понедельника или месяц, в который попадает дата.
+func range(of period: StatsPeriod, containing date: Date) -> DateInterval {
+    statsCalendar.dateInterval(of: period.component, for: date) ?? DateInterval(start: date, duration: 0)
+}
+
+func shifted(_ date: Date, by steps: Int, period: StatsPeriod) -> Date {
+    statsCalendar.date(byAdding: period.component, value: steps, to: date) ?? date
+}
+
+/// Вперёд листать можно, пока не дошли до периода с сегодняшним днём.
+func canShiftForward(_ date: Date, period: StatsPeriod) -> Bool {
+    range(of: period, containing: date).end <= Date()
+}
+
+func sessionsIn(_ sessions: [Session], period: StatsPeriod, containing date: Date) -> [Session] {
+    let interval = range(of: period, containing: date)
+    return sessions.filter { $0.startedAt >= interval.start && $0.startedAt < interval.end }
+}
+
+func totalsFor(_ sessions: [Session], period: StatsPeriod, containing date: Date) -> Totals {
+    totalsOf(sessionsIn(sessions, period: period, containing: date))
 }
 
 /// Прогон попадает в корзину по времени своего начала — сессии короткие,
 /// и делить их между часами ради точности не стоит.
-func bucketsFor(_ sessions: [Session], period: StatsPeriod) -> [Bucket] {
-    let calendar = Calendar.current
-    let relevant = sessionsIn(sessions, period: period)
+func bucketsFor(_ sessions: [Session], period: StatsPeriod, containing date: Date) -> [Bucket] {
+    let calendar = statsCalendar
+    let relevant = sessionsIn(sessions, period: period, containing: date)
 
     if period == .day {
         return (0...23).map { hour in
@@ -123,33 +140,105 @@ func bucketsFor(_ sessions: [Session], period: StatsPeriod) -> [Bucket] {
             return Bucket(
                 id: hour,
                 label: String(format: "%02d", hour),
+                title: String(format: "%02d:00–%02d:00", hour, (hour + 1) % 24),
                 emphasised: hour % 6 == 0,
                 totals: totalsOf(inHour)
             )
         }
     }
 
-    let today = calendar.startOfDay(for: Date())
-    return (0..<period.days).reversed().map { back in
-        let date = calendar.date(byAdding: .day, value: -back, to: today) ?? today
-        let inDay = relevant.filter { calendar.isDate($0.startedAt, inSameDayAs: date) }
-        let dayOfMonth = calendar.component(.day, from: date)
+    let interval = range(of: period, containing: date)
+    var days: [Date] = []
+    var day = interval.start
+    while day < interval.end {
+        days.append(day)
+        day = calendar.date(byAdding: .day, value: 1, to: day) ?? interval.end
+    }
+    return days.enumerated().map { index, day in
+        let inDay = relevant.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
+        let dayOfMonth = calendar.component(.day, from: day)
         return Bucket(
-            id: back,
-            label: period == .week ? shortWeekday(date) : "\(dayOfMonth)",
-            emphasised: period == .week || dayOfMonth % 5 == 0,
+            id: index,
+            label: period == .week ? weekdayOf(day) : "\(dayOfMonth)",
+            title: dayTitle(day),
+            emphasised: period == .week || dayOfMonth == 1 || dayOfMonth % 5 == 0,
             totals: totalsOf(inDay)
         )
     }
 }
 
-/// Интерфейс русский, поэтому и дни недели подписываем по-русски
-/// независимо от языка системы.
-private func shortWeekday(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "ru_RU")
-    formatter.dateFormat = "EEEEEE"
-    return formatter.string(from: date)
+/// «Сегодня», «8–14 сентября», «Август»; год добавляется, только если он не текущий.
+func periodTitle(_ period: StatsPeriod, containing date: Date) -> String {
+    let calendar = statsCalendar
+    let currentYear = calendar.component(.year, from: Date())
+    func year(_ day: Date) -> String {
+        let value = calendar.component(.year, from: day)
+        return value == currentYear ? "" : " \(value)"
+    }
+
+    switch period {
+    case .day:
+        if calendar.isDateInToday(date) { return "Сегодня" }
+        if calendar.isDateInYesterday(date) { return "Вчера" }
+        return dayTitle(date) + year(date)
+    case .week:
+        let interval = range(of: .week, containing: date)
+        let first = interval.start
+        let last = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? first
+        let firstDay = calendar.component(.day, from: first)
+        let lastDay = calendar.component(.day, from: last)
+        if calendar.isDate(first, equalTo: last, toGranularity: .month) {
+            return "\(firstDay)–\(lastDay) \(monthOf(last))" + year(last)
+        }
+        return "\(firstDay) \(monthOf(first)) – \(lastDay) \(monthOf(last))" + year(last)
+    case .month:
+        return monthsNominative[calendar.component(.month, from: date) - 1] + year(date)
+    }
+}
+
+// Интерфейс русский, поэтому даты подписываем по-русски независимо от языка системы.
+private let weekdaysShort = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+private let monthsGenitive = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+]
+private let monthsNominative = [
+    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+]
+
+private func weekdayOf(_ day: Date) -> String {
+    // В Calendar воскресенье — 1, понедельник — 2.
+    weekdaysShort[(statsCalendar.component(.weekday, from: day) + 5) % 7]
+}
+
+private func monthOf(_ day: Date) -> String {
+    monthsGenitive[statsCalendar.component(.month, from: day) - 1]
+}
+
+/// «Пн, 8 сентября».
+private func dayTitle(_ day: Date) -> String {
+    "\(weekdayOf(day)), \(statsCalendar.component(.day, from: day)) \(monthOf(day))"
+}
+
+/// Шаг сетки графика: круглое число минут или часов, чтобы делений было не больше четырёх.
+func axisStepMs(_ peakMs: Int) -> Int {
+    for minutes in [1, 2, 5, 10, 15, 30, 60, 120, 180, 240, 360, 720] {
+        let step = minutes * 60_000
+        if peakMs <= step * 4 { return step }
+    }
+    let hour = 3_600_000
+    return (peakMs + hour * 4 - 1) / (hour * 4) * hour
+}
+
+/// Подпись деления оси: «0», «15 мин», «1 ч», «1,5 ч».
+func formatAxis(_ ms: Int) -> String {
+    let minutes = ms / 60_000
+    if minutes == 0 { return "0" }
+    if minutes < 60 { return "\(minutes) мин" }
+    if minutes % 60 == 0 { return "\(minutes / 60) ч" }
+    if minutes % 30 == 0 { return "\(minutes / 60),5 ч" }
+    return "\(minutes / 60) ч \(String(format: "%02d", minutes % 60))"
 }
 
 /// «1 ч 05 мин», «12 мин», «—» для пустого значения.

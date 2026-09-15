@@ -6,11 +6,11 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.TextStyle
-import java.util.Locale
+import java.time.temporal.TemporalAdjusters
 
 /** Один прогон таймера: сколько собирались и сколько получилось на самом деле. */
 data class Session(
@@ -87,10 +87,10 @@ class HistoryStore(context: Context) {
     }
 }
 
-enum class StatsPeriod(val label: String, val days: Int) {
-    DAY("День", 1),
-    WEEK("Неделя", 7),
-    MONTH("Месяц", 30),
+enum class StatsPeriod(val label: String) {
+    DAY("День"),
+    WEEK("Неделя"),
+    MONTH("Месяц"),
 }
 
 data class Totals(val workedMs: Long, val overtimeMs: Long, val restMs: Long) {
@@ -98,8 +98,8 @@ data class Totals(val workedMs: Long, val overtimeMs: Long, val restMs: Long) {
     val maxMs: Long get() = maxOf(workedMs + overtimeMs, restMs)
 }
 
-/** Столбик графика: подпись плюс те же три числа. */
-data class Bucket(val label: String, val emphasised: Boolean, val totals: Totals)
+/** Столбик графика: короткая подпись под осью, полная — для подсказки, плюс те же три числа. */
+data class Bucket(val label: String, val title: String, val emphasised: Boolean, val totals: Totals)
 
 private fun totalsOf(sessions: List<Session>): Totals = Totals(
     workedMs = sessions.filter { it.mode == Mode.WORK }.sumOf { it.workedMs },
@@ -107,19 +107,46 @@ private fun totalsOf(sessions: List<Session>): Totals = Totals(
     restMs = sessions.filter { it.mode == Mode.BREAK }.sumOf { it.elapsedMs },
 )
 
-/**
- * Периоды скользящие: «неделя» — это последние семь дней вместе с сегодняшним,
- * а не календарная неделя, иначе в понедельник смотреть было бы не на что.
- */
-fun sessionsIn(sessions: List<Session>, period: StatsPeriod, zone: ZoneId = ZoneId.systemDefault()): List<Session> {
-    val from = LocalDate.now(zone).minusDays((period.days - 1).toLong())
+/** Периоды календарные: день, неделя с понедельника или месяц, в который попадает дата. */
+fun startOf(period: StatsPeriod, date: LocalDate): LocalDate = when (period) {
+    StatsPeriod.DAY -> date
+    StatsPeriod.WEEK -> date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    StatsPeriod.MONTH -> date.withDayOfMonth(1)
+}
+
+/** Первый день следующего периода — граница не включается. */
+private fun endOf(period: StatsPeriod, date: LocalDate): LocalDate = shift(period, startOf(period, date), 1)
+
+fun shift(period: StatsPeriod, date: LocalDate, steps: Long): LocalDate = when (period) {
+    StatsPeriod.DAY -> date.plusDays(steps)
+    StatsPeriod.WEEK -> date.plusWeeks(steps)
+    StatsPeriod.MONTH -> date.plusMonths(steps)
+}
+
+/** Вперёд листать можно, пока не дошли до периода с сегодняшним днём. */
+fun canShiftForward(period: StatsPeriod, date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): Boolean =
+    !endOf(period, date).isAfter(LocalDate.now(zone))
+
+fun sessionsIn(
+    sessions: List<Session>,
+    period: StatsPeriod,
+    date: LocalDate,
+    zone: ZoneId = ZoneId.systemDefault(),
+): List<Session> {
+    val from = startOf(period, date)
+    val until = endOf(period, date)
     return sessions.filter { session ->
-        !dateOf(session, zone).isBefore(from)
+        val day = dateOf(session, zone)
+        !day.isBefore(from) && day.isBefore(until)
     }
 }
 
-fun totalsFor(sessions: List<Session>, period: StatsPeriod, zone: ZoneId = ZoneId.systemDefault()): Totals =
-    totalsOf(sessionsIn(sessions, period, zone))
+fun totalsFor(
+    sessions: List<Session>,
+    period: StatsPeriod,
+    date: LocalDate,
+    zone: ZoneId = ZoneId.systemDefault(),
+): Totals = totalsOf(sessionsIn(sessions, period, date, zone))
 
 /**
  * Прогон попадает в корзину по времени своего начала — сессии короткие,
@@ -128,46 +155,108 @@ fun totalsFor(sessions: List<Session>, period: StatsPeriod, zone: ZoneId = ZoneI
 fun bucketsFor(
     sessions: List<Session>,
     period: StatsPeriod,
+    date: LocalDate,
     zone: ZoneId = ZoneId.systemDefault(),
 ): List<Bucket> {
-    val relevant = sessionsIn(sessions, period, zone)
+    val relevant = sessionsIn(sessions, period, date, zone)
     return when (period) {
         StatsPeriod.DAY -> (0..23).map { hour ->
             Bucket(
                 label = "%02d".format(hour),
+                title = "%02d:00–%02d:00".format(hour, (hour + 1) % 24),
                 emphasised = hour % 6 == 0,
                 totals = totalsOf(relevant.filter { hourOf(it, zone) == hour }),
             )
         }
 
         else -> {
-            val today = LocalDate.now(zone)
-            (period.days - 1 downTo 0).map { back ->
-                val date = today.minusDays(back.toLong())
-                val label = if (period == StatsPeriod.WEEK) {
-                    // Интерфейс русский, поэтому и дни недели подписываем по-русски
-                    // независимо от языка системы.
-                    date.dayOfWeek.getDisplayName(TextStyle.SHORT, RussianLocale)
-                } else {
-                    date.dayOfMonth.toString()
+            val until = endOf(period, date)
+            generateSequence(startOf(period, date)) { it.plusDays(1) }
+                .takeWhile { it.isBefore(until) }
+                .map { day ->
+                    Bucket(
+                        label = if (period == StatsPeriod.WEEK) weekdayOf(day) else day.dayOfMonth.toString(),
+                        title = dayTitle(day),
+                        emphasised = period == StatsPeriod.WEEK || day.dayOfMonth == 1 || day.dayOfMonth % 5 == 0,
+                        totals = totalsOf(relevant.filter { dateOf(it, zone) == day }),
+                    )
                 }
-                Bucket(
-                    label = label,
-                    emphasised = period == StatsPeriod.WEEK || date.dayOfMonth % 5 == 0,
-                    totals = totalsOf(relevant.filter { dateOf(it, zone) == date }),
-                )
-            }
+                .toList()
         }
     }
 }
 
-private val RussianLocale: Locale = Locale.forLanguageTag("ru")
+/** «Сегодня», «8–14 сентября», «Август»; год добавляется, только если он не текущий. */
+fun periodTitle(period: StatsPeriod, date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): String {
+    val today = LocalDate.now(zone)
+    fun year(day: LocalDate) = if (day.year == today.year) "" else " ${day.year}"
+    return when (period) {
+        StatsPeriod.DAY -> when (date) {
+            today -> "Сегодня"
+            today.minusDays(1) -> "Вчера"
+            else -> dayTitle(date) + year(date)
+        }
+
+        StatsPeriod.WEEK -> {
+            val first = startOf(period, date)
+            val last = first.plusDays(6)
+            if (first.month == last.month) {
+                "${first.dayOfMonth}–${last.dayOfMonth} ${monthOf(last)}${year(last)}"
+            } else {
+                "${first.dayOfMonth} ${monthOf(first)} – ${last.dayOfMonth} ${monthOf(last)}${year(last)}"
+            }
+        }
+
+        StatsPeriod.MONTH -> MonthsNominative[date.monthValue - 1] + year(date)
+    }
+}
+
+// Интерфейс русский, поэтому даты подписываем по-русски независимо от языка системы.
+private val WeekdaysShort = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+private val MonthsGenitive = listOf(
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+private val MonthsNominative = listOf(
+    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+)
+
+private fun weekdayOf(day: LocalDate): String = WeekdaysShort[day.dayOfWeek.value - 1]
+
+private fun monthOf(day: LocalDate): String = MonthsGenitive[day.monthValue - 1]
+
+/** «Пн, 8 сентября». */
+private fun dayTitle(day: LocalDate): String = "${weekdayOf(day)}, ${day.dayOfMonth} ${monthOf(day)}"
 
 private fun dateOf(session: Session, zone: ZoneId): LocalDate =
     Instant.ofEpochMilli(session.startedAt).atZone(zone).toLocalDate()
 
 private fun hourOf(session: Session, zone: ZoneId): Int =
     Instant.ofEpochMilli(session.startedAt).atZone(zone).hour
+
+/** Шаг сетки графика: круглое число минут или часов, чтобы делений было не больше четырёх. */
+fun axisStepMs(peakMs: Long): Long {
+    val stepMinutes = longArrayOf(1, 2, 5, 10, 15, 30, 60, 120, 180, 240, 360, 720)
+    stepMinutes.forEach { minutes ->
+        val step = minutes * 60_000
+        if (peakMs <= step * 4) return step
+    }
+    val hour = 3_600_000L
+    return (peakMs + hour * 4 - 1) / (hour * 4) * hour
+}
+
+/** Подпись деления оси: «0», «15 мин», «1 ч», «1,5 ч». */
+fun formatAxis(ms: Long): String {
+    val minutes = ms / 60_000
+    return when {
+        minutes == 0L -> "0"
+        minutes < 60 -> "$minutes мин"
+        minutes % 60 == 0L -> "${minutes / 60} ч"
+        minutes % 30 == 0L -> "${minutes / 60},5 ч"
+        else -> "${minutes / 60} ч ${"%02d".format(minutes % 60)}"
+    }
+}
 
 /** «1 ч 05 мин», «12 мин», «—» для пустого значения. */
 fun formatSpan(ms: Long): String {

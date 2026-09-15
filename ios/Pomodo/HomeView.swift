@@ -21,25 +21,48 @@ struct HomeView: View {
         ZStack(alignment: .topTrailing) {
             background.ignoresSafeArea()
 
-            // В альбомной ориентации всё не помещается, поэтому содержимое прокручивается,
-            // а табло ужимается под высоту экрана.
             GeometryReader { geo in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        modePicker
-                        Spacer().frame(height: 36)
-                        preview(height: min(150, geo.size.height * 0.34))
-                        Text("нажмите, чтобы задать часы и минуты")
-                            .font(.system(size: 12))
-                            .foregroundStyle(foreground.opacity(0.45))
-                        Spacer().frame(height: 28)
-                        presets
-                        Spacer().frame(height: 48)
-                        startButton
+                if geo.size.width > geo.size.height {
+                    // В горизонтальном положении одна колонка не влезает по высоте: табло уходит влево,
+                    // пресеты и старт — вправо, и всё помещается на экран без прокрутки.
+                    HStack(spacing: 24) {
+                        VStack(spacing: 0) {
+                            modePicker
+                            Spacer().frame(height: 20)
+                            preview(height: min(160, geo.size.height * 0.45))
+                            hint
+                        }
+                        .frame(maxWidth: .infinity)
+                        .layoutPriority(1.4)
+
+                        VStack(spacing: 0) {
+                            presets(perRow: 3)
+                            Spacer().frame(height: 24)
+                            startButton
+                        }
+                        .frame(maxWidth: .infinity)
+                        // Сверху справа кнопки статистики и настроек — не заезжаем под них.
+                        .padding(.top, 44)
                     }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
-                    .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            modePicker
+                            Spacer().frame(height: 36)
+                            preview(height: min(150, geo.size.height * 0.34))
+                            hint
+                            Spacer().frame(height: 28)
+                            presets(perRow: quickPresets.count)
+                            Spacer().frame(height: 48)
+                            startButton
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                    }
                 }
             }
 
@@ -110,25 +133,42 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
-    private var presets: some View {
-        HStack(spacing: 8) {
-            ForEach(quickPresets, id: \.self) { minutes in
-                let selected = seconds == minutes * 60
-                Button {
-                    settings.setSeconds(minutes * 60, for: mode)
-                } label: {
-                    Text("\(minutes)")
-                        .font(.system(size: 14))
-                        .foregroundStyle(foreground.opacity(selected ? 1 : 0.65))
-                        .frame(width: 44, height: 44)
-                        .background(
-                            selected ? accent.opacity(0.25) : foreground.opacity(0.07),
-                            in: Circle()
-                        )
+    private var hint: some View {
+        Text("нажмите, чтобы задать часы и минуты")
+            .font(.system(size: 12))
+            .foregroundStyle(foreground.opacity(0.45))
+    }
+
+    private func presets(perRow: Int) -> some View {
+        let rows = stride(from: 0, to: quickPresets.count, by: perRow).map {
+            Array(quickPresets[$0..<min($0 + perRow, quickPresets.count)])
+        }
+        return VStack(spacing: 8) {
+            ForEach(rows, id: \.self) { row in
+                HStack(spacing: 8) {
+                    ForEach(row, id: \.self) { minutes in
+                        presetChip(minutes)
+                    }
                 }
-                .buttonStyle(.plain)
             }
         }
+    }
+
+    private func presetChip(_ minutes: Int) -> some View {
+        let selected = seconds == minutes * 60
+        return Button {
+            settings.setSeconds(minutes * 60, for: mode)
+        } label: {
+            Text("\(minutes)")
+                .font(.system(size: 14))
+                .foregroundStyle(foreground.opacity(selected ? 1 : 0.65))
+                .frame(width: 44, height: 44)
+                .background(
+                    selected ? accent.opacity(0.25) : foreground.opacity(0.07),
+                    in: Circle()
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var startButton: some View {

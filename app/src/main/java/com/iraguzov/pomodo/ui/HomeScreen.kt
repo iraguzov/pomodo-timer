@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -72,9 +74,7 @@ fun HomeScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         val viewportHeight = maxHeight
-        // В альбомной ориентации всё не помещается, поэтому колонка прокручивается,
-        // а табло ужимается под высоту экрана.
-        val previewHeight = minOf(150.dp, viewportHeight * 0.34f)
+        val landscape = maxWidth > maxHeight
 
         Row(
             modifier = Modifier
@@ -90,15 +90,7 @@ fun HomeScreen(
             }
         }
 
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .heightIn(min = viewportHeight)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        val modePills = @Composable {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Mode.entries.forEach { m ->
                     ModePill(
@@ -109,13 +101,13 @@ fun HomeScreen(
                     ) { mode = m }
                 }
             }
+        }
 
-            Spacer(Modifier.height(36.dp))
-
+        val preview = @Composable { height: Dp ->
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(previewHeight)
+                    .height(height)
                     .clip(RoundedCornerShape(20.dp))
                     .clickable { editing = true },
             ) {
@@ -130,29 +122,32 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-
             Text(
                 "нажмите, чтобы задать часы и минуты",
                 color = onBackground,
                 fontSize = 12.sp,
                 modifier = Modifier.alpha(0.45f),
             )
+        }
 
-            Spacer(Modifier.height(28.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                QUICK_PRESETS.forEach { minutes ->
-                    PresetChip(
-                        text = "$minutes",
-                        selected = seconds == minutes * 60,
-                        accent = accent,
-                        contentColor = onBackground,
-                    ) { onSetDuration(mode, minutes * 60) }
+        val presets = @Composable { perRow: Int ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                QUICK_PRESETS.chunked(perRow).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { minutes ->
+                            PresetChip(
+                                text = "$minutes",
+                                selected = seconds == minutes * 60,
+                                accent = accent,
+                                contentColor = onBackground,
+                            ) { onSetDuration(mode, minutes * 60) }
+                        }
+                    }
                 }
             }
+        }
 
-            Spacer(Modifier.height(48.dp))
-
+        val startButton = @Composable {
             Box(
                 Modifier
                     .size(96.dp)
@@ -167,6 +162,56 @@ fun HomeScreen(
                     tint = contentColorOn(accent),
                     modifier = Modifier.size(44.dp),
                 )
+            }
+        }
+
+        if (landscape) {
+            // В горизонтальном положении одна колонка не влезает по высоте: табло уходит влево,
+            // пресеты и старт — вправо, и всё помещается на экран без прокрутки.
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    Modifier.weight(1.4f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    modePills()
+                    Spacer(Modifier.height(20.dp))
+                    preview(minOf(160.dp, viewportHeight * 0.45f))
+                }
+                Spacer(Modifier.width(24.dp))
+                Column(
+                    // Сверху справа кнопки статистики и настроек — не заезжаем под них.
+                    Modifier
+                        .weight(1f)
+                        .padding(top = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    presets(3)
+                    Spacer(Modifier.height(24.dp))
+                    startButton()
+                }
+            }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = viewportHeight)
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                modePills()
+                Spacer(Modifier.height(36.dp))
+                preview(minOf(150.dp, viewportHeight * 0.34f))
+                Spacer(Modifier.height(28.dp))
+                presets(QUICK_PRESETS.size)
+                Spacer(Modifier.height(48.dp))
+                startButton()
             }
         }
     }
